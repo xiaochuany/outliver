@@ -11,8 +11,8 @@
         /* Heatmap Grid */
         .heatmap { display: grid; grid-template-rows: repeat(7, 12px); grid-auto-flow: column; gap: 3px; overflow-x: auto; padding-bottom: 20px; }
         .day-cell { width: 12px; height: 12px; background: var(--empty); border-radius: 2px; }
-        .day-cell[data-level="1"] { background: #0e4429; } /* Low activity */
-        .day-cell[data-level="2"] { background: #26a641; } /* High activity */
+        .day-cell[data-level="1"] { background: #0e4429; } 
+        .day-cell[data-level="2"] { background: #26a641; } 
         
         /* Form & Switches */
         .controls { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 20px; }
@@ -21,6 +21,14 @@
         .row input { margin-right: 15px; }
         .details { font-size: 0.85em; color: #8b949e; margin-left: auto; text-align: right; }
         
+        /* NEW: History List Styling */
+        .history-section { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px; }
+        .history-title { font-size: 0.85em; color: #8b949e; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .history-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 0.9em; }
+        .history-item:last-child { border-bottom: none; }
+        .history-date { color: #8b949e; font-family: monospace; }
+        .history-val { color: var(--accent); }
+
         /* Output */
         .output-area { margin-top: 20px; background: #161b22; padding: 15px; border-radius: 6px; font-family: monospace; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); }
         button { background: var(--accent); color: white; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
@@ -35,6 +43,11 @@
         <label>Date: <input type="date" id="datePicker"></label>
         <br><br>
         <div id="switches"></div>
+        
+        <div class="history-section">
+            <div class="history-title">Last 7 Entries</div>
+            <div id="historyList">Loading history...</div>
+        </div>
     </div>
 
     <div class="output-area">
@@ -58,9 +71,6 @@
     dateInput.valueAsDate = new Date();
     
     const switchContainer = document.getElementById('switches');
-    
-    // Render the list of switches from your table
-    // We re-order them Mon(1) -> Sun(0) for display logic
     const sortedProtocols = [...protocols.slice(1), protocols[0]]; 
 
     sortedProtocols.forEach(p => {
@@ -71,14 +81,12 @@
             <div><strong>${p.name}</strong><br><span style="font-size:0.8em">${p.metric}</span></div>
             <div class="details">${p.rationale}</div>
         `;
-        // Auto-select based on today's day of week
         if (new Date().getDay() === p.day) {
             div.querySelector('input').checked = true;
         }
         switchContainer.appendChild(div);
     });
 
-    // 2. String Generation Logic
     function updateString() {
         const date = dateInput.value;
         const activity = document.querySelector('input[name="activity"]:checked');
@@ -87,11 +95,9 @@
         }
     }
     
-    // Listen for date changes to re-highlight suggested protocol
     dateInput.addEventListener('change', () => {
         const day = new Date(dateInput.value).getDay();
         const radios = document.getElementsByName('activity');
-        // Simple logic to find the radio corresponding to the day and select it
         const targetProto = protocols.find(p => p.day === day);
         for(let r of radios) {
             if(r.value === targetProto.name) r.checked = true;
@@ -99,30 +105,56 @@
         updateString();
     });
 
-    // Initial string gen
     updateString();
 
-    // 3. Heatmap Logic (Minimal Fetch & Render)
+    // 3. Heatmap & History Logic
     async function loadHeatmap() {
         const grid = document.getElementById('heatmap');
+        const historyList = document.getElementById('historyList'); // Grab the new container
+        
         const today = new Date();
         const oneYearAgo = new Date();
         oneYearAgo.setFullYear(today.getFullYear() - 1);
 
-        // Fetch Data
         let completedDates = new Set();
-        try {
-            const response = await fetch('data.csv?t=' + new Date().getTime()); // bust cache
-            const text = await response.text();
-            text.split('\n').forEach(line => {
-                if(line.trim()) completedDates.add(line.split(',')[0]);
-            });
-        } catch (e) { console.log("No data yet"); }
+        let rawLines = [];
 
-        // Render 52 weeks x 7 days
-        // We iterate day by day from 1 year ago
+        // Fetch Data
+        try {
+            const response = await fetch('data.csv?t=' + new Date().getTime()); 
+            const text = await response.text();
+            
+            // Split text into lines and remove empty ones
+            rawLines = text.trim().split('\n').filter(line => line.length > 0);
+            
+            rawLines.forEach(line => {
+                completedDates.add(line.split(',')[0]);
+            });
+
+            // --- NEW: Render History List ---
+            // 1. Slice the last 7 items
+            // 2. Reverse them (newest first)
+            const recent = rawLines.slice(-7).reverse();
+            
+            // 3. Clear the "Loading..." text
+            historyList.innerHTML = '';
+
+            // 4. Create HTML for each line
+            recent.forEach(line => {
+                const parts = line.split(','); // parts[0] is Date, parts[1] is Activity
+                const row = document.createElement('div');
+                row.className = 'history-item';
+                row.innerHTML = `<span class="history-date">${parts[0]}</span> <span class="history-val">${parts[1] || ''}</span>`;
+                historyList.appendChild(row);
+            });
+
+        } catch (e) { 
+            console.log("No data yet"); 
+            historyList.innerHTML = 'No data found.';
+        }
+
+        // Render Heatmap (Same as before)
         let currentDate = new Date(oneYearAgo);
-        
         while (currentDate <= today) {
             const cell = document.createElement('div');
             cell.className = 'day-cell';
@@ -134,7 +166,6 @@
             } else {
                 cell.title = dateStr;
             }
-            
             grid.appendChild(cell);
             currentDate.setDate(currentDate.getDate() + 1);
         }
